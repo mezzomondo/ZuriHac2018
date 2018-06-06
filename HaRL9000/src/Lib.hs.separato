@@ -1,0 +1,89 @@
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE OverloadedLists       #-}
+
+module Lib
+    ( runCalc
+    ) where
+
+import Control.Monad (replicateM_)
+import qualified Data.Vector as V
+import Data.Vector (Vector)
+import TensorFlow.Core
+  (Tensor, Value, feed, encodeTensorData, Scalar(..), ControlNode, Build, TensorData)
+import TensorFlow.Ops
+  (add, placeholder, sub, reduceSum, mul)
+import TensorFlow.GenOps.Core (square)
+import TensorFlow.Variable (readValue, initializedVariable, Variable)
+import TensorFlow.Session (runSession, run, runWithFeeds, build, SessionT)
+import TensorFlow.Minimize (gradientDescent, minimizeWith)
+
+data Model = Model {
+      prediction :: Tensor Build Float
+    , trainStep  :: ControlNode
+}
+
+data Env = Env {
+      xInput     :: Vector Float
+    , yInput     :: Vector Float
+    , wVar       :: Variable Float
+    , bVar       :: Variable Float
+    , xPHolder   :: Tensor Value Float
+    , yPHolder   :: Tensor Value Float
+}
+
+createEnvFromData :: Vector Float -> Vector Float -> SessionT IO Env
+createEnvFromData xIn yIn = do
+    let xSize = fromIntegral $ V.length xIn
+    let ySize = fromIntegral $ V.length yIn
+
+    (w :: Variable Float) <- initializedVariable 3
+    (b :: Variable Float) <- initializedVariable 1
+
+    (x :: Tensor Value Float) <- placeholder [xSize]
+    (y :: Tensor Value Float) <- placeholder [ySize]
+    return Env {xInput=xIn , yInput=yIn , wVar=w , bVar=b , xPHolder=x , yPHolder=y}
+
+    
+createModelFromEnv :: Env -> Build Model
+createModelFromEnv env = do
+
+    let linearModel = (readValue (wVar env) `mul` xPHolder env) `add` readValue (bVar env)
+
+    let squareDeltas = square (linearModel `sub` yPHolder env)
+
+    let loss = reduceSum squareDeltas
+    tStep <- minimizeWith (gradientDescent 0.01) loss [wVar env, bVar env]
+
+    return Model {prediction=linearModel, trainStep=tStep}
+
+trainModelForEpochs :: Env -> Model -> SessionT IO ()
+trainModelForEpochs env model = do
+    let xSize = fromIntegral $ V.length (xInput env)
+    let ySize = fromIntegral $ V.length (yInput env)
+    let trainWithFeeds xF yF = runWithFeeds
+            [ feed (xPHolder env) xF
+            , feed (yPHolder env) yF
+            ]
+            (trainStep model)
+
+    replicateM_ 1000 $
+        trainWithFeeds
+        (encodeTensorData [xSize] (xInput env))
+        (encodeTensorData [ySize] (yInput env))
+
+runModelForPrediction :: Env -> SessionT IO (Float, Float)
+runModelForPrediction env = do
+    (Scalar w_learned, Scalar b_learned) <- run (readValue (wVar env), readValue (bVar env))
+    return (w_learned, b_learned)
+
+getResults :: Vector Float -> Vector Float -> IO (Float, Float)
+getResults xIn yIn = runSession $ do
+    env <- createEnvFromData xIn yIn
+    model <- build $ createModelFromEnv env
+    trainModelForEpochs env model
+    runModelForPrediction env
+ 
+runCalc :: IO ()
+runCalc = do
+    results <- getResults (V.fromList [1.0, 2.0, 3.0, 4.0]) (V.fromList [4.0, 9.0, 14.0, 19.0])
+    print results

@@ -1,0 +1,80 @@
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE OverloadedLists       #-}
+
+module Lib
+    ( runCalc
+    ) where
+
+import Control.Monad (replicateM_)
+import qualified Data.Vector as V
+import Data.Vector (Vector)
+import TensorFlow.Core
+  (Tensor, Value, feed, encodeTensorData, Scalar(..), ControlNode, Build, TensorData)
+import TensorFlow.Ops
+  (add, placeholder, sub, reduceSum, mul, save, restore)
+import TensorFlow.GenOps.Core (square)
+import TensorFlow.Variable (readValue, initializedVariable, Variable)
+import TensorFlow.Session (runSession, run, runWithFeeds, build, SessionT)
+import TensorFlow.Minimize (gradientDescent, minimizeWith)
+import TensorFlow.Tensor
+
+data Env = Env {
+      xInput     :: Vector Float
+    , yInput     :: Vector Float
+    , wVar       :: Variable Float
+    , bVar       :: Variable Float
+    , xPHolder   :: Tensor Value Float
+    , yPHolder   :: Tensor Value Float
+    , trainStep  :: ControlNode
+    , model      :: Tensor Build Float
+}
+
+createModelAndEnv :: Vector Float -> Vector Float -> Build Env
+createModelAndEnv xIn yIn = do
+    let xSize = fromIntegral $ V.length xIn
+    let ySize = fromIntegral $ V.length yIn
+
+    (w :: Variable Float) <- initializedVariable 3
+    (b :: Variable Float) <- initializedVariable 1
+
+    (x :: Tensor Value Float) <- placeholder [xSize]
+    (y :: Tensor Value Float) <- placeholder [ySize]
+
+    let linearModel = (readValue w `mul` x) `add` readValue b
+
+    let squareDeltas = square (linearModel `sub` y)
+
+    let loss = reduceSum squareDeltas
+    tStep <- minimizeWith (gradientDescent 0.01) loss [w, b]
+
+--    renderedModel <- render linearModel
+    return Env {xInput=xIn , yInput=yIn , wVar=w , bVar=b , xPHolder=x , yPHolder=y, trainStep=tStep, model=linearModel}
+
+trainWithFeeds :: Env -> TensorData Float -> TensorData Float -> SessionT IO ()
+trainWithFeeds env xF yF = runWithFeeds [feed (xPHolder env) xF, feed (yPHolder env) yF] (trainStep env)
+
+trainModelForEpochs :: Env -> SessionT IO ()
+trainModelForEpochs env = do
+    let xSize = fromIntegral $ V.length (xInput env)
+    let ySize = fromIntegral $ V.length (yInput env)
+
+    replicateM_ 1000 $
+        trainWithFeeds env (encodeTensorData [xSize] (xInput env)) (encodeTensorData [ySize] (yInput env))
+
+getTrainingResult :: Env -> SessionT IO (Float, Float)
+getTrainingResult env = do
+    (Scalar w_learned, Scalar b_learned) <- run (readValue (wVar env), readValue (bVar env))
+    return (w_learned, b_learned)
+
+-- saveModel :: Env -> SessionT IO ControlNode
+-- saveModel env = save "/tmp/pippo.ts" [model env]
+
+runCalc :: IO ()
+runCalc = do
+    results <- runSession $ do
+        env <- build $ createModelAndEnv (V.fromList [1.0, 2.0, 3.0, 4.0]) (V.fromList [4.0, 9.0, 14.0, 19.0])
+        trainModelForEpochs env
+--        saveModel env
+        getTrainingResult env
+    print results

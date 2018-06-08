@@ -3,7 +3,7 @@
 
 module Lib
     ( frozenLakeMain
-    , valueToInt
+    , updateMatrixBellman
     ) where
 
 import Control.Exception.Base
@@ -66,12 +66,12 @@ argMax row noise = do
   let newRow = row + asRow (randomVector seed Gaussian dim) * noise
   return $ snd $ maxIndex newRow
 
-updateMatrixBellman :: Matrix R -> Int -> Int -> Double -> Double -> Double -> Int -> IO (Matrix R)
-updateMatrixBellman qTable s a lr reward y ob =
-  return $ accum qTable (+) [((s, a), bellman)]
+updateMatrixBellman :: Matrix R -> Int -> Int -> Double -> Double -> Double -> Int -> Matrix R
+updateMatrixBellman qTable s a lr reward y s1 =
+  accum qTable (+) [((s, a), bellman)]
   where
     bellman = lr * (reward + y * max) - atIndex qTable (s, a)
-    max = maxElement (qTable ? [ob])
+    max = maxElement (qTable ? [s1])
 
 frozenLake :: ClientM [Matrix R]
 frozenLake = do
@@ -79,12 +79,12 @@ frozenLake = do
   replicateM episodeCount (agent inst)
   where
     episodeCount :: Int
-    episodeCount = 10
+    episodeCount = 100
 
 agent :: InstID -> ClientM (Matrix R)
 agent inst = do
   Observation obS <- envReset inst
-  let o = valueToInt obS
+  let s = valueToInt obS
   osInfo <- envObservationSpaceInfo inst
   let osN = getDimension osInfo
   asInfo <- envActionSpaceInfo inst
@@ -92,20 +92,26 @@ agent inst = do
   let q = konst 0 (osN, asN) :: Matrix R
   let learningRate = 0.8
   let gamma = 0.95
-  go q o 1 learningRate gamma False
+  go q s 1 learningRate gamma False
   where
     maxSteps :: Int
     maxSteps = 100
 
     go :: Matrix R -> Int -> Int -> Double -> Double -> Bool -> ClientM (Matrix R)
-    go q o x lr g done = do
-      let row = q ? [o]
+    go q s x lr g done = do
+      let row = q ? [s]
       nextStep <- liftIO $ argMax row (1.0/fromIntegral x)
       Outcome ob reward done _ <- envStep inst (Step (Number (fromIntegral nextStep)) True)
       if not done && x < maxSteps
         then do
             let s1 = valueToInt ob
-            q1 <- liftIO $ updateMatrixBellman q o nextStep lr reward g s1
+            let q1 = updateMatrixBellman q s nextStep lr reward g s1
+            if reward > 0.0
+              then
+                liftIO $ print q1
+              else
+                liftIO $ print "NONONO"
+              
             go q1 s1 (x + 1) lr g done
         else
             return q

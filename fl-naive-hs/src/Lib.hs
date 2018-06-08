@@ -106,12 +106,7 @@ agent inst = do
         then do
             let s1 = valueToInt ob
             let q1 = updateMatrixBellman q s nextStep lr reward g s1
-            if reward > 0.0
-              then
-                liftIO $ print q1
-              else
-                liftIO $ print "NONONO"
-              
+
             go q1 s1 (x + 1) lr g done
         else
             return q

@@ -29,8 +29,6 @@ import System.Random
   , qTable       :: Matrix R
 }-}
 
-newtype QTable = QTable { actualTable :: IORef (Matrix R) }
-
 data MyInfo = MyInfo {
     n    :: Int
   , name :: String
@@ -57,7 +55,10 @@ frozenLakeMain = do
   out <- runClientM frozenLake (ClientEnv manager url)
   case out of
     Left err -> print err
-    Right ok -> print ok
+    Right ref -> do
+                    ref <- readIORef ref
+                    print "---------- FINAL Q-TABLE -----------"
+                    print ref
   where
     url :: BaseUrl
     url = BaseUrl Http "localhost" 5000 ""
@@ -76,7 +77,7 @@ updateMatrixBellman qTable s a lr reward y s1 =
     bellman = lr * (reward + y * max) - atIndex qTable (s, a)
     max = maxElement (qTable ? [s1])
 
-frozenLake :: ClientM ()
+frozenLake :: ClientM (IORef (Matrix R))
 frozenLake = do
   inst <- envCreate FrozenLakeV0
   osInfo <- envObservationSpaceInfo inst
@@ -85,9 +86,10 @@ frozenLake = do
   let asN = getDimension asInfo
   ref <- liftIO $ newIORef (konst 0 (osN, asN))
   replicateM_ episodeCount (agent inst ref)
+  return ref
   where
     episodeCount :: Int
-    episodeCount = 200
+    episodeCount = 2000
 
 agent :: InstID -> IORef (Matrix R) -> ClientM ()
 agent inst ref = do

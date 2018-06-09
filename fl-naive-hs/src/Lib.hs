@@ -8,6 +8,7 @@ module Lib
 
 import Control.Exception.Base
 -- import Control.Lens
+import Data.IORef
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -27,6 +28,8 @@ import System.Random
   , numEpisodes  :: Int
   , qTable       :: Matrix R
 }-}
+
+newtype QTable = QTable { actualTable :: IORef (Matrix R) }
 
 data MyInfo = MyInfo {
     n    :: Int
@@ -73,40 +76,38 @@ updateMatrixBellman qTable s a lr reward y s1 =
     bellman = lr * (reward + y * max) - atIndex qTable (s, a)
     max = maxElement (qTable ? [s1])
 
-frozenLake :: ClientM [Matrix R]
+frozenLake :: ClientM ()
 frozenLake = do
   inst <- envCreate FrozenLakeV0
-  replicateM episodeCount (agent inst)
-  where
-    episodeCount :: Int
-    episodeCount = 100
-
-agent :: InstID -> ClientM (Matrix R)
-agent inst = do
-  Observation obS <- envReset inst
-  let s = valueToInt obS
   osInfo <- envObservationSpaceInfo inst
   let osN = getDimension osInfo
   asInfo <- envActionSpaceInfo inst
   let asN = getDimension asInfo
-  let q = konst 0 (osN, asN) :: Matrix R
+  ref <- liftIO $ newIORef (konst 0 (osN, asN))
+  replicateM_ episodeCount (agent inst ref)
+  where
+    episodeCount :: Int
+    episodeCount = 200
+
+agent :: InstID -> IORef (Matrix R) -> ClientM ()
+agent inst ref = do
+  Observation obS <- envReset inst
+  let s = valueToInt obS
   let learningRate = 0.8
   let gamma = 0.95
-  go q s 1 learningRate gamma False
+  go ref s 1 learningRate gamma False
   where
     maxSteps :: Int
     maxSteps = 100
 
-    go :: Matrix R -> Int -> Int -> Double -> Double -> Bool -> ClientM (Matrix R)
-    go q s x lr g done = do
+    go :: IORef (Matrix R) -> Int -> Int -> Double -> Double -> Bool -> ClientM ()
+    go ref s x lr g done = do
+      q <- liftIO $ readIORef ref
       let row = q ? [s]
       nextStep <- liftIO $ argMax row (1.0/fromIntegral x)
       Outcome ob reward done _ <- envStep inst (Step (Number (fromIntegral nextStep)) True)
-      if not done && x < maxSteps
-        then do
-            let s1 = valueToInt ob
-            let q1 = updateMatrixBellman q s nextStep lr reward g s1
-
-            go q1 s1 (x + 1) lr g done
-        else
-            return q
+      let s1 = valueToInt ob
+      let newQTable = updateMatrixBellman q s nextStep lr reward g s1
+      liftIO $ writeIORef ref newQTable
+      liftIO $ print newQTable
+      when (not done && x < maxSteps) $ go ref s1 (x + 1) lr g done

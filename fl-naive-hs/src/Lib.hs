@@ -74,7 +74,7 @@ updateMatrixBellman :: Matrix R -> Int -> Int -> Double -> Double -> Double -> I
 updateMatrixBellman qTable s a lr reward y s1 =
   accum qTable (+) [((s, a), bellman)]
   where
-    bellman = lr * (reward + y * max) - atIndex qTable (s, a)
+    bellman = lr * ((reward + y * max) - atIndex qTable (s, a))
     max = maxElement (qTable ? [s1])
 
 frozenLake :: ClientM (IORef (Matrix R))

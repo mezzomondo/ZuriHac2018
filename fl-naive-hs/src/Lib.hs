@@ -56,9 +56,9 @@ frozenLakeMain = do
   case out of
     Left err -> print err
     Right ref -> do
-                    ref <- readIORef ref
+                    q <- readIORef ref
                     print "---------- FINAL Q-TABLE -----------"
-                    print ref
+                    print q
   where
     url :: BaseUrl
     url = BaseUrl Http "localhost" 5000 ""

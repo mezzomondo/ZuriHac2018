@@ -27,6 +27,7 @@ dependencies:
 - hmatrix
 - http-client
 - lens
+- mtl
 - random
 - scientific
 - servant-client

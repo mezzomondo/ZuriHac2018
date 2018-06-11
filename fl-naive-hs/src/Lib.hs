@@ -4,6 +4,7 @@
 module Lib
     ( frozenLakeMain
     , updateMatrixBellman
+    , Env (..)
     ) where
 
 import Control.Exception.Base
@@ -28,8 +29,8 @@ data Env = Env {
   , envLearningRate :: Double
   , envGamma        :: Double
   , envNumEpisodes  :: Int
-  , envMaxSteps     :: Int
   , envQTable       :: IORef (Matrix R)
+  , envRewards      :: IORef [Double]
 }
 
 type App = ReaderT Env ClientM
@@ -69,10 +70,13 @@ frozenLakeMain = do
   out <- runClientM frozenLake (ClientEnv manager url)
   case out of
     Left err -> print err
-    Right ref -> do
-                    q <- readIORef ref
-                    putStrLn "---------- FINAL Q-TABLE -----------"
+    Right env -> do
+                    q <- readIORef (envQTable env)
+                    putStrLn "----------- FINAL Q-TABLE ------------"
                     disp 6 q
+                    r <- readIORef (envRewards env)
+                    putStrLn "---------- SCORE OVER TIME -----------"
+                    print $ sum r/fromIntegral (envNumEpisodes env)
   where
     url :: BaseUrl
     url = BaseUrl Http "localhost" 5000 ""
@@ -84,10 +88,9 @@ argMax row noise = do
   let newRow = row + asRow (randomVector seed Gaussian dim) * noise
   return $ snd $ maxIndex newRow
 
-updateMatrixBellman :: Int -> Int -> Double -> Int -> App (Matrix R)
-updateMatrixBellman currentState currentAction reward nextState = do
-  env <- ask
-  qTable <- liftIO $ readIORef $ envQTable env
+updateMatrixBellman :: Env -> Int -> Int -> Double -> Int -> IO (Matrix R)
+updateMatrixBellman env currentState currentAction reward nextState = do
+  qTable <- readIORef $ envQTable env
   let lr = envLearningRate env
   let g = envGamma env
   let max = maxElement (qTable ? [nextState])
@@ -101,26 +104,26 @@ buildEnv = do
   let learningRate = 0.8
   let gamma = 0.95
   let numEpisodes = 2000
-  let maxSteps = 100
   osInfo <- envObservationSpaceInfo inst
   let osN = getDimension osInfo
   asInfo <- envActionSpaceInfo inst
   let asN = getDimension asInfo
   ref <- liftIO $ newIORef (konst 0 (osN, asN))
+  rewardsRef <- liftIO $ newIORef []
   return Env {
       envInstId       = inst
     , envLearningRate = learningRate
     , envGamma        = gamma
     , envNumEpisodes  = numEpisodes
-    , envMaxSteps     = maxSteps
     , envQTable       = ref
+    , envRewards      = rewardsRef
   }
 
-frozenLake :: ClientM (IORef (Matrix R))
+frozenLake :: ClientM Env
 frozenLake = do
   env <- buildEnv
   runReaderT (replicateM_ (envNumEpisodes env) agent) env
-  return $ envQTable env
+  return env
 
 agent :: App ()
 agent = do
@@ -137,7 +140,10 @@ go state loopStep done = do
   nextStep <- liftIO $ argMax row (1.0/fromIntegral loopStep)
   Outcome ob reward done _ <- lift $ envStep (envInstId env) (Step (Number (fromIntegral nextStep)) True)
   let nextState = valueToInt ob
-  newQTable <- updateMatrixBellman state nextStep reward nextState
+  newQTable <- liftIO $ updateMatrixBellman env state nextStep reward nextState
   liftIO $ writeIORef (envQTable env) newQTable
   liftIO $ disp 6 newQTable
-  when (not done && loopStep < envMaxSteps env) $ go nextState (loopStep + 1) done
+  if done then do
+            rewards <- liftIO $ readIORef (envRewards env)
+            liftIO $ writeIORef (envRewards env) (rewards++[reward])
+          else go nextState (loopStep + 1) done

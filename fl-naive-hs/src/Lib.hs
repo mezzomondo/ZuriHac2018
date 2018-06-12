@@ -7,6 +7,7 @@ module Lib
     , Env (..)
     ) where
 
+import System.Console.ANSI
 import Control.Exception.Base
 -- import Control.Lens
 import Data.IORef
@@ -64,23 +65,6 @@ valueToInt (Number sc) = finalInt
   where
     Just finalInt = toBoundedInteger sc :: Maybe Int
 
-frozenLakeMain :: IO ()
-frozenLakeMain = do
-  manager <- newManager defaultManagerSettings
-  out <- runClientM frozenLake (ClientEnv manager url)
-  case out of
-    Left err -> print err
-    Right env -> do
-                    q <- readIORef (envQTable env)
-                    putStrLn "----------- FINAL Q-TABLE ------------"
-                    disp 6 q
-                    r <- readIORef (envRewards env)
-                    putStrLn "---------- SCORE OVER TIME -----------"
-                    print $ sum r/fromIntegral (envNumEpisodes env)
-  where
-    url :: BaseUrl
-    url = BaseUrl Http "localhost" 5000 ""
-
 argMax :: Matrix R -> Matrix R -> IO Int
 argMax row noise = do
   seed <- randomIO
@@ -119,6 +103,35 @@ buildEnv = do
     , envRewards      = rewardsRef
   }
 
+compass :: Int -> Int -> Int
+compass original final = case original - final of
+  (-1) -> 0
+  4    -> 1
+  1    -> 2
+  (-4) -> 3
+  _    -> -1
+
+trueAction :: Int -> Int -> Int
+trueAction original calculated = if calculated == -1 then original else calculated
+
+frozenLakeMain :: IO ()
+frozenLakeMain = do
+  manager <- newManager defaultManagerSettings
+  out <- runClientM frozenLake (ClientEnv manager url)
+  case out of
+    Left err -> print err
+    Right env -> do
+      clearFromCursorToScreenEnd
+      q <- readIORef (envQTable env)
+      putStrLn "----------- FINAL Q-TABLE ------------"
+      disp 6 q
+      r <- readIORef (envRewards env)
+      putStrLn "---------- SCORE OVER TIME -----------"
+      print $ sum r/fromIntegral (envNumEpisodes env)
+  where
+    url :: BaseUrl
+    url = BaseUrl Http "localhost" 5000 ""
+
 frozenLake :: ClientM Env
 frozenLake = do
   env <- buildEnv
@@ -137,12 +150,14 @@ go state loopStep done = do
   env <- ask
   q <- liftIO $ readIORef $ envQTable env
   let row = q ? [state]
-  nextStep <- liftIO $ argMax row (1.0/fromIntegral loopStep)
-  Outcome ob reward done _ <- lift $ envStep (envInstId env) (Step (Number (fromIntegral nextStep)) True)
+  nextAction <- liftIO $ argMax row (1.0/fromIntegral loopStep)
+  Outcome ob reward done _ <- lift $ envStep (envInstId env) (Step (Number (fromIntegral nextAction)) True)
   let nextState = valueToInt ob
-  newQTable <- liftIO $ updateMatrixBellman env state nextStep reward nextState
+  let action = trueAction nextAction (compass state nextState)
+  newQTable <- liftIO $ updateMatrixBellman env state action reward nextState
   liftIO $ writeIORef (envQTable env) newQTable
   liftIO $ disp 6 newQTable
+  liftIO $ cursorUp 17
   if done then do
             rewards <- liftIO $ readIORef (envRewards env)
             liftIO $ writeIORef (envRewards env) (rewards++[reward])

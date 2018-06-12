@@ -104,7 +104,7 @@ buildEnv = do
   }
 
 compass :: Int -> Int -> Int
-compass original final = case original - final of
+compass original final = case final - original of
   (-1) -> 0
   4    -> 1
   1    -> 2

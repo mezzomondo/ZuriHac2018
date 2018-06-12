@@ -15,12 +15,14 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader
+import Control.Monad.ST
 -- import Data.Aeson
 import Data.Aeson.Types
 import Data.Scientific
 import Data.Text
 import Network.HTTP.Client
 import Numeric.LinearAlgebra
+import Numeric.LinearAlgebra.Devel
 import OpenAI.Gym
 import Servant.Client
 import Text.Printf
@@ -42,8 +44,6 @@ LEFT = 0
 DOWN = 1
 RIGHT = 2
 UP = 3
-
-IS THAT TRUE?????
 -}
 
 data MyInfo = MyInfo {
@@ -80,8 +80,15 @@ updateMatrixBellman env currentState currentAction reward nextState = do
   let g = envGamma env
   let max = maxElement (qTable ? [nextState])
   let bellman = lr * ((reward + g * max) - atIndex qTable (currentState, currentAction))
-  let newTable = accum qTable (+) [((currentState, currentAction), bellman)]
-  return newTable
+  -- let newTable = accum qTable (+) [((currentState, currentAction), bellman)]
+  let newMatrix = updateMatrix qTable currentState currentAction bellman
+  return newMatrix
+
+updateMatrix :: Matrix R -> Int -> Int -> Double -> Matrix R
+updateMatrix q s a b = runST $ do
+  mutableQ <- thawMatrix q
+  writeMatrix mutableQ s a b
+  freezeMatrix mutableQ
 
 buildEnv :: ClientM Env
 buildEnv = do

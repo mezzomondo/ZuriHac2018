@@ -23,6 +23,7 @@ import Network.HTTP.Client
 import Numeric.LinearAlgebra
 import OpenAI.Gym
 import Servant.Client
+import Text.Printf
 import System.Random
 
 data Env = Env {
@@ -87,7 +88,7 @@ buildEnv = do
   inst <- envCreate FrozenLakeV0
   let learningRate = 0.8
   let gamma = 0.95
-  let numEpisodes = 2000
+  let numEpisodes = 500
   osInfo <- envObservationSpaceInfo inst
   let osN = getDimension osInfo
   asInfo <- envActionSpaceInfo inst
@@ -109,10 +110,16 @@ compass original final = case final - original of
   4    -> 1
   1    -> 2
   (-4) -> 3
-  _    -> -1
+  0    -> -1
+  _    -> -100
 
 trueAction :: Int -> Int -> Int
-trueAction original calculated = if calculated == -1 then original else calculated
+trueAction original computed = if computed == -1 then original else computed
+
+printMatrix :: Matrix R -> IO ()
+printMatrix q = do
+  putStrLn "LEFT      DOWN      RIGHT     UP      "
+  putStr $ format "  " (printf "%.6f") q
 
 frozenLakeMain :: IO ()
 frozenLakeMain = do
@@ -124,7 +131,7 @@ frozenLakeMain = do
       clearFromCursorToScreenEnd
       q <- readIORef (envQTable env)
       putStrLn "----------- FINAL Q-TABLE ------------"
-      disp 6 q
+      printMatrix q
       r <- readIORef (envRewards env)
       putStrLn "---------- SCORE OVER TIME -----------"
       print $ sum r/fromIntegral (envNumEpisodes env)
@@ -153,11 +160,13 @@ go state loopStep done = do
   nextAction <- liftIO $ argMax row (1.0/fromIntegral loopStep)
   Outcome ob reward done _ <- lift $ envStep (envInstId env) (Step (Number (fromIntegral nextAction)) True)
   let nextState = valueToInt ob
-  let action = trueAction nextAction (compass state nextState)
-  newQTable <- liftIO $ updateMatrixBellman env state action reward nextState
-  liftIO $ writeIORef (envQTable env) newQTable
-  liftIO $ disp 6 newQTable
-  liftIO $ cursorUp 17
+  let computedAction = compass state nextState
+  when (computedAction >= 0) $ do
+    let action = trueAction nextAction computedAction
+    newQTable <- liftIO $ updateMatrixBellman env state action reward nextState
+    liftIO $ writeIORef (envQTable env) newQTable
+    liftIO $ printMatrix newQTable
+    liftIO $ cursorUp 17
   if done then do
             rewards <- liftIO $ readIORef (envRewards env)
             liftIO $ writeIORef (envRewards env) (rewards++[reward])

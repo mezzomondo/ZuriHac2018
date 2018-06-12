@@ -79,10 +79,10 @@ updateMatrixBellman env currentState currentAction reward nextState = do
   let lr = envLearningRate env
   let g = envGamma env
   let max = maxElement (qTable ? [nextState])
-  let bellman = lr * ((reward + g * max) - atIndex qTable (currentState, currentAction))
-  -- let newTable = accum qTable (+) [((currentState, currentAction), bellman)]
-  let newMatrix = updateMatrix qTable currentState currentAction bellman
-  return newMatrix
+  let bellman = curValue + lr * ((reward + g * max) - curValue)
+        where
+          curValue = atIndex qTable (currentState, currentAction)
+  return $ updateMatrix qTable currentState currentAction bellman
 
 updateMatrix :: Matrix R -> Int -> Int -> Double -> Matrix R
 updateMatrix q s a b = runST $ do

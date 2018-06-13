@@ -75,9 +75,9 @@ updateMatrixBellman env currentState currentAction reward nextState = do
   return $ updateMatrix qTable currentState currentAction bellman
 
 updateMatrix :: Matrix R -> Int -> Int -> Double -> Matrix R
-updateMatrix q s a b = runST $ do
-  mutableQ <- thawMatrix q
-  writeMatrix mutableQ s a b
+updateMatrix qTable state action bellman = runST $ do
+  mutableQ <- thawMatrix qTable
+  writeMatrix mutableQ state action bellman
   freezeMatrix mutableQ
 
 buildEnv :: ClientM Env

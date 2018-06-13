@@ -9,14 +9,12 @@ module Lib
 
 import System.Console.ANSI
 import Control.Exception.Base
--- import Control.Lens
 import Data.IORef
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.ST
--- import Data.Aeson
 import Data.Aeson.Types
 import Data.Scientific
 import Data.Text
@@ -38,13 +36,6 @@ data Env = Env {
 }
 
 type App = ReaderT Env ClientM
-
-{- REMEMBER:
-LEFT = 0
-DOWN = 1
-RIGHT = 2
-UP = 3
--}
 
 data MyInfo = MyInfo {
     n    :: Int
@@ -110,6 +101,13 @@ buildEnv = do
     , envRewards      = rewardsRef
   }
 
+{- REMEMBER:
+LEFT = 0
+DOWN = 1
+RIGHT = 2
+UP = 3
+-}
+
 compass :: Int -> Int -> Int
 compass original final = case final - original of
   (-1) -> 0
@@ -140,7 +138,7 @@ frozenLakeMain = do
       printMatrix q
       r <- readIORef (envRewards env)
       putStrLn "---------- SCORE OVER TIME -----------"
-      print $ sum r/fromIntegral (envNumEpisodes env)
+      printf "%.2f" $ sum r/fromIntegral (envNumEpisodes env)
   where
     url :: BaseUrl
     url = BaseUrl Http "localhost" 5000 ""

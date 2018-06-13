@@ -51,15 +51,14 @@ data MyInfo = MyInfo {
   , name :: String
 } deriving (Show)
 
-parseInfo :: Info -> Parser MyInfo
-parseInfo (Info i) =
-  MyInfo <$> i .: "n"
-         <*> i .: "name"
-
 getDimension :: Info -> Int
 getDimension info = n myInfo
   where
     Just myInfo = parseMaybe parseInfo info
+    parseInfo :: Info -> Parser MyInfo
+    parseInfo (Info i) =
+      MyInfo <$> i .: "n"
+        <*> i .: "name"
 
 valueToInt :: Value -> Int
 valueToInt (Number sc) = finalInt

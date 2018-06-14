@@ -49,7 +49,7 @@ getDimension info = n myInfo
     parseInfo :: Info -> Parser MyInfo
     parseInfo (Info i) =
       MyInfo <$> i .: "n"
-        <*> i .: "name"
+             <*> i .: "name"
 
 valueToInt :: Value -> Int
 valueToInt (Number sc) = finalInt
